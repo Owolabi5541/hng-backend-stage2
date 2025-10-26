@@ -7,7 +7,7 @@ HNG Backend Stage 2 Task
 Overview
 --------
 This project implements the Stage 2 backend task for the HNG Internship.
-It provides a Country and Exchange Rates API that can:
+It provides a Country and Exchange Rates API that can: Done and accomplished with Nestjs{Node.js/Express}
 
 - Refresh and store countries and exchange rates from external APIs.
 - Generate a summary image of top GDP countries.
