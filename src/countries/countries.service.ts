@@ -13,6 +13,9 @@ const IMAGE_CACHE_PATH = process.env.IMAGE_CACHE_PATH || './cache/summary.png';
 export class CountriesService {
   private readonly logger = new Logger(CountriesService.name);
 
+  // chunk size controls concurrency / DB load; tune as needed (50 is a good default for ~200 records)
+  private readonly CHUNK_SIZE = 50;
+
   constructor(
     private prisma: PrismaService,
     private http: HttpClientService,
@@ -100,36 +103,29 @@ export class CountriesService {
       };
     });
 
-    // --- Persist to DB ---
+    // --- Persist to DB in chunks (avoid a single long transaction) ---
     try {
-      await this.prisma.$transaction(async (tx) => {
-        for (const p of prepared) {
-          const existing = p.name ? await tx.country.findFirst({ where: { name: { equals: p.name } } }) : null;
+      // chunk helper
+      const chunks: any[][] = [];
+      for (let i = 0; i < prepared.length; i += this.CHUNK_SIZE) {
+        chunks.push(prepared.slice(i, i + this.CHUNK_SIZE));
+      }
 
-          if (existing) {
-            await tx.country.update({
-              where: { id: existing.id },
-              data: {
-                capital: p.capital,
-                region: p.region,
-                population: p.population,
-                currency_code: p.currency_code,
-                exchange_rate: p.exchange_rate,
-                estimated_gdp: p.estimated_gdp,
-                flag_url: p.flag_url,
-                last_refreshed_at: new Date(),
-              },
-            });
-          } else {
-            await tx.country.create({ data: p });
-          }
-        }
+      for (const [index, chunk] of chunks.entries()) {
+        this.logger.log(`Processing chunk ${index + 1}/${chunks.length} (${chunk.length} items)`);
 
-        await tx.meta.upsert({
-          where: { id: 1 },
-          create: { id: 1, last_refreshed_at: new Date(), total_countries: prepared.length },
-          update: { last_refreshed_at: new Date(), total_countries: prepared.length },
-        });
+        // prepare concurrent operations for this chunk
+        const ops = chunk.map((p) => this.upsertCountrySafe(p));
+
+        // run them in parallel but limited to chunk size
+        await Promise.all(ops);
+      }
+
+      // Update meta (single upsert)
+      await this.prisma.meta.upsert({
+        where: { id: 1 },
+        create: { id: 1, last_refreshed_at: new Date(), total_countries: prepared.length },
+        update: { last_refreshed_at: new Date(), total_countries: prepared.length },
       });
     } catch (e) {
       this.logger.error('DB transaction failed', e);
@@ -150,6 +146,43 @@ export class CountriesService {
     }
 
     return { total: prepared.length, last_refreshed_at: new Date().toISOString() };
+  }
+
+  /**
+   * Helper: safely update or create a country record.
+   * Uses updateMany -> create fallback to avoid upsert assumptions about unique constraints.
+   */
+  private async upsertCountrySafe(p: any) {
+    try {
+      if (!p?.name) {
+        // nothing to match on; attempt create
+        await this.prisma.country.create({ data: p });
+        return;
+      }
+
+      // updateMany returns a count; if no rows were updated we create
+      const updateResult = await this.prisma.country.updateMany({
+        where: { name: { equals: p.name } },
+        data: {
+          capital: p.capital,
+          region: p.region,
+          population: p.population,
+          currency_code: p.currency_code,
+          exchange_rate: p.exchange_rate,
+          estimated_gdp: p.estimated_gdp,
+          flag_url: p.flag_url,
+          last_refreshed_at: new Date(),
+        },
+      });
+
+      if (updateResult.count === 0) {
+        // no existing record matched, create a new one
+        await this.prisma.country.create({ data: p });
+      }
+    } catch (err) {
+      // log but don't throw — allow other records to proceed
+      this.logger.error(`Failed to upsert country ${p?.name}`, err);
+    }
   }
 
   async findAll(query: any) {
@@ -173,15 +206,14 @@ export class CountriesService {
     }
   }
 
-async findOneByName(name: string) {
-  if (!name) return null;
-  const country = await this.prisma.country.findFirst({
-    where: { name: { equals: name } },
-  });
-  if (!country) return null;
-  return serializeBigInt(country);
-}
-
+  async findOneByName(name: string) {
+    if (!name) return null;
+    const country = await this.prisma.country.findFirst({
+      where: { name: { equals: name } },
+    });
+    if (!country) return null;
+    return serializeBigInt(country);
+  }
 
   async deleteByName(name: string) {
     const country = await this.findOneByName(name);
