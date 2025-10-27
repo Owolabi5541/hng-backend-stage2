@@ -6,6 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+    "prebuild": "pnpm run prisma:generate",
     "build": "tsc -p tsconfig.build.json",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "node dist/main.js",
@@ -29,10 +30,14 @@
     "@nestjs/platform-express": "^11.0.1",
     "@prisma/client": "^6.18.0",
     "axios": "^1.12.2",
+    "build": "^0.1.4",
     "canvas": "^3.2.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "compose": "^0.1.2",
+    "docker": "^1.0.0",
     "dotenv": "^17.2.3",
+    "express": "^5.1.0",
     "fs-extra": "^11.3.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
@@ -75,5 +80,8 @@
     "collectCoverageFrom": ["**/*.(t|j)s"],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

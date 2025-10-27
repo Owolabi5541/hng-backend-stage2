@@ -1,15 +1,31 @@
-version: "3.8"
 services:
   mysql:
     image: mysql:8.0
+    container_name: mysql
+    restart: always
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: country_db
-      MYSQL_USER: user
-      MYSQL_PASSWORD: pass
     ports:
       - "3306:3306"
     volumes:
       - dbdata:/var/lib/mysql
+
+  country_exchange_api:
+    build: .
+    container_name: country_exchange_api
+    depends_on:
+      - mysql
+    environment:
+      DATABASE_URL: "mysql://root:root@mysql:3306/country_db"
+      PORT: 8000
+      COUNTRIES_API: "https://restcountries.com/v2/all?fields=name,capital,region,population,flag,currencies"
+      EXCHANGE_API: "https://open.er-api.com/v6/latest/USD"
+      IMAGE_CACHE_PATH: "./cache/summary.png"
+      PRISMA_TELEMETRY_DISABLED: 1
+    ports:
+      - "8000:8000"
+    command: ["node", "dist/main.js"]
+
 volumes:
   dbdata:
